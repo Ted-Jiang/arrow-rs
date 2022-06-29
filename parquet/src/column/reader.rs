@@ -26,6 +26,7 @@ use crate::column::reader::decoder::{
 };
 use crate::data_type::*;
 use crate::errors::{ParquetError, Result};
+use crate::file::page_index::range::RowRanges;
 use crate::schema::types::ColumnDescPtr;
 use crate::util::bit_util::{ceil, num_required_bits};
 use crate::util::memory::ByteBufferPtr;
@@ -133,6 +134,8 @@ pub struct GenericColumnReader<R, D, V> {
 
     /// The decoder for the values
     values_decoder: V,
+
+    selected_row_ranges: Option<RowRanges>,
 }
 
 impl<R, D, V> GenericColumnReader<R, D, V>
@@ -160,7 +163,12 @@ where
             num_buffered_values: 0,
             num_decoded_values: 0,
             values_decoder,
+            selected_row_ranges: None
         }
+    }
+
+    pub(crate) fn set_row_ranges(&mut self, row_ranges: RowRanges) {
+        self.selected_row_ranges = Some(row_ranges);
     }
 
     /// Reads a batch of values of at most `batch_size`.
@@ -206,6 +214,9 @@ where
         // Read exhaustively all pages until we read all batch_size values/levels
         // or there are no more values/levels to read.
         while max(values_read, levels_read) < batch_size {
+            //TODO
+            //add filter page
+            // only read page header and set buf,decoder
             if !self.has_next()? {
                 break;
             }

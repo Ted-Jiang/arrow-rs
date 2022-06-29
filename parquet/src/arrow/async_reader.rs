@@ -100,6 +100,7 @@ use crate::basic::Compression;
 use crate::column::page::{Page, PageIterator, PageReader};
 use crate::compression::{create_codec, Codec};
 use crate::errors::{ParquetError, Result};
+use crate::file::filer_offset_index::FilterOffsetIndex;
 use crate::file::footer::{decode_footer, decode_metadata};
 use crate::file::metadata::ParquetMetaData;
 use crate::file::serialized_reader::{decode_page, read_page_header};
@@ -421,6 +422,7 @@ where
                         self.schema.clone(),
                         self.projection.clone(),
                         row_group,
+                        None,
                     )?;
 
                     let batch_reader =
@@ -451,7 +453,8 @@ impl RowGroupCollection for InMemoryRowGroup {
         self.row_count
     }
 
-    fn column_chunks(&self, i: usize) -> Result<Box<dyn PageIterator>> {
+    fn column_chunks(&self, i: usize, row_groups_filter_offset_index: Option<Vec<FilterOffsetIndex>>) -> Result<Box<dyn PageIterator>> {
+        //todo support page level filter
         let page_reader = self.column_chunks[i].as_ref().unwrap().pages();
 
         Ok(Box::new(ColumnChunkIterator {

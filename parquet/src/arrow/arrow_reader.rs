@@ -29,8 +29,10 @@ use crate::arrow::array_reader::{build_array_reader, ArrayReader};
 use crate::arrow::schema::parquet_to_arrow_schema;
 use crate::arrow::schema::parquet_to_arrow_schema_by_columns;
 use crate::arrow::ProjectionMask;
-use crate::errors::Result;
+use crate::errors::{ParquetError, Result};
+use crate::file::filer_offset_index::{FilterOffsetIndex, OffsetRange};
 use crate::file::metadata::{KeyValue, ParquetMetaData};
+use crate::file::page_index::range::RowRanges;
 use crate::file::reader::{ChunkReader, FileReader, SerializedFileReader};
 use crate::schema::types::SchemaDescriptor;
 
@@ -68,11 +70,19 @@ pub trait ArrowReader {
         mask: ProjectionMask,
         batch_size: usize,
     ) -> Result<Self::RecordReader>;
+
+    fn get_record_reader_by_columns_and_row_ranges(
+        &mut self,
+        mask: ProjectionMask,
+        row_ranges: &RowRanges,
+        batch_size: usize,
+    ) -> Result<Self::RecordReader>;
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct ArrowReaderOptions {
     skip_arrow_metadata: bool,
+    selected_rows: Option<RowRanges>,
 }
 
 impl ArrowReaderOptions {
@@ -88,10 +98,15 @@ impl ArrowReaderOptions {
     ///
 
     /// Set `skip_arrow_metadata` to true, to skip decoding this
-    pub fn with_skip_arrow_metadata(self, skip_arrow_metadata: bool) -> Self {
-        Self {
-            skip_arrow_metadata,
-        }
+    pub fn with_skip_arrow_metadata(mut self, skip_arrow_metadata: bool) -> Self {
+        self.skip_arrow_metadata = skip_arrow_metadata;
+        self
+    }
+
+    /// Set `skip_page_offset`, to skip decoding specific pages
+    pub fn with_skip_page_offset(mut self, selected_rows: RowRanges) -> Self {
+        self.selected_rows = Some(selected_rows);
+        self
     }
 }
 
@@ -130,17 +145,62 @@ impl ArrowReader for ParquetFileArrowReader {
         mask: ProjectionMask,
         batch_size: usize,
     ) -> Result<ParquetRecordBatchReader> {
-        let array_reader = build_array_reader(
-            self.file_reader
-                .metadata()
-                .file_metadata()
-                .schema_descr_ptr(),
-            Arc::new(self.get_schema()?),
-            mask,
-            Box::new(self.file_reader.clone()),
-        )?;
+        if let Some(selected_rows) = &self.options.selected_rows {
+            self.get_record_reader_by_columns_and_row_ranges(mask, selected_rows, batch_size)
+        } else {
+            let array_reader = build_array_reader(
+                self.file_reader
+                    .metadata()
+                    .file_metadata()
+                    .schema_descr_ptr(),
+                Arc::new(self.get_schema()?),
+                mask,
+                Box::new(self.file_reader.clone()),
+                None,
+            )?;
 
-        ParquetRecordBatchReader::try_new(batch_size, array_reader)
+            ParquetRecordBatchReader::try_new(batch_size, array_reader)
+        }
+    }
+
+    fn get_record_reader_by_columns_and_row_ranges(
+        &mut self,
+        mask: ProjectionMask,
+        row_ranges: &RowRanges,
+        batch_size: usize,
+    ) -> Result<ParquetRecordBatchReader> {
+        let parquet_meta = self.file_reader.metadata();
+        let offset_indexes = parquet_meta.offset_indexes();
+
+        return if let Some(offset_indexes) = offset_indexes {
+            let row_group_row_counts = parquet_meta.row_groups().iter().map(|r| r.num_rows()).collect::<Vec<i64>>();
+
+            assert_eq!(offset_indexes.len(), row_group_row_counts.len());
+
+            let mut filter_offset_index = vec![];
+
+            for (rg_num, offset_indexes_in_row_group) in offset_indexes.iter().enumerate() {
+                let mut filter_offset_in_row_group = vec![];
+                for offset_indexes_in_col in offset_indexes_in_row_group {
+                    filter_offset_in_row_group.push(FilterOffsetIndex::try_new(offset_indexes_in_col, row_ranges, row_group_row_counts[rg_num]));
+                }
+                filter_offset_index.push(filter_offset_in_row_group);
+            }
+
+            let array_reader = build_array_reader(
+                parquet_meta
+                    .file_metadata()
+                    .schema_descr_ptr(),
+                Arc::new(self.get_schema()?),
+                mask,
+                Box::new(self.file_reader.clone()),
+                Some(filter_offset_index),
+            )?;
+
+            ParquetRecordBatchReader::try_new(batch_size, array_reader)
+        } else {
+            Err(ParquetError::General(format!("Not set page_indexes and offset_indexes before use page filter")))
+        };
     }
 }
 

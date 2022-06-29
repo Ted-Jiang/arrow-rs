@@ -20,7 +20,7 @@ use std::cmp::Ordering;
 use std::collections::VecDeque;
 use std::ops::RangeInclusive;
 
-type Range = RangeInclusive<usize>;
+pub(crate) type Range = RangeInclusive<usize>;
 
 pub trait RangeOps {
     fn is_before(&self, other: &Self) -> bool;

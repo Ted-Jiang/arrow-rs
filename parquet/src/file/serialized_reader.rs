@@ -21,7 +21,7 @@
 use bytes::{Buf, Bytes};
 use std::{convert::TryFrom, fs::File, io::Read, path::Path, sync::Arc};
 
-use parquet_format::{PageHeader, PageType};
+use parquet_format::{PageHeader, PageLocation, PageType};
 use thrift::protocol::TCompactInputProtocol;
 
 use crate::basic::{Compression, Encoding, Type};
@@ -30,6 +30,8 @@ use crate::compression::{create_codec, Codec};
 use crate::errors::{ParquetError, Result};
 use crate::file::page_index::index_reader;
 use crate::file::{footer, metadata::*, reader::*, statistics};
+use crate::file::filer_offset_index::FilterOffsetIndex;
+use crate::file::page_index::index::Index;
 use crate::record::reader::RowIter;
 use crate::record::Row;
 use crate::schema::types::Type as SchemaType;
@@ -248,13 +250,17 @@ impl<R: 'static + ChunkReader> SerializedFileReader<R> {
         }
 
         if options.enable_page_index {
-            //Todo for now test data `data_index_bloom_encoding_stats.parquet` only have one rowgroup
-            //support multi after create multi-RG test data.
-            let cols = metadata.row_group(0);
-            let columns_indexes =
-                index_reader::read_columns_indexes(&chunk_reader, cols.columns())?;
-            let pages_locations =
-                index_reader::read_pages_locations(&chunk_reader, cols.columns())?;
+            let mut columns_indexes = vec![];
+            let mut offset_indexes = vec![];
+            for mut rg in filtered_row_groups {
+                let c =
+                    index_reader::read_columns_indexes(&chunk_reader, rg.columns())?;
+                let p =
+                    index_reader::read_pages_locations(&chunk_reader, rg.columns())?;
+
+                columns_indexes.push(c);
+                offset_indexes.push(p);
+            }
 
             Ok(Self {
                 chunk_reader: Arc::new(chunk_reader),
@@ -262,7 +268,7 @@ impl<R: 'static + ChunkReader> SerializedFileReader<R> {
                     metadata.file_metadata().clone(),
                     filtered_row_groups,
                     Some(columns_indexes),
-                    Some(pages_locations),
+                    Some(offset_indexes),
                 ),
             })
         } else {
@@ -342,10 +348,29 @@ impl<'a, R: 'static + ChunkReader> RowGroupReader for SerializedRowGroupReader<'
     fn get_column_page_reader(&self, i: usize) -> Result<Box<dyn PageReader>> {
         let col = self.metadata.column(i);
         let (col_start, col_length) = col.byte_range();
-        //Todo filter with multi row range
         let file_chunk = self.chunk_reader.get_read(col_start, col_length as usize)?;
         let page_reader = SerializedPageReader::new(
             file_chunk,
+            col.num_values(),
+            col.compression(),
+            col.column_descr().physical_type(),
+        )?;
+        Ok(Box::new(page_reader))
+    }
+
+    fn get_column_page_reader_with_offset_index(&self, column_index: usize, row_group_pages_offset_index: &Vec<FilterOffsetIndex>) -> Result<Box<dyn PageReader>> {
+        let col = self.metadata.column(column_index);
+        let row_group_offset = col.dictionary_page_offset().unwrap_or(col.data_page_offset());
+        let offsets = row_group_pages_offset_index[column_index].calculate_offset_range(row_group_offset);
+
+        let mut file_chunks = self.chunk_reader.get_read(&offsets[0].get_offset() as u64, &offsets[0].get_length() as usize)?;
+        for offset in offsets.iter().skip(1) {
+            let file_chunk = self.chunk_reader.get_read(offset.get_offset() as u64, offset.get_length() as usize)?;
+            file_chunks = file_chunks.chain(file_chunk);
+        }
+
+        let page_reader = SerializedPageReader::new(
+            file_chunks,
             col.num_values(),
             col.compression(),
             col.column_descr().physical_type(),
@@ -871,7 +896,7 @@ mod tests {
         let file = get_test_file("alltypes_plain.parquet");
         let file_reader = Arc::new(SerializedFileReader::new(file).unwrap());
 
-        let mut page_iterator = FilePageIterator::new(0, file_reader.clone()).unwrap();
+        let mut page_iterator = FilePageIterator::new(0, file_reader.clone(), None).unwrap();
 
         // read first page
         let page = page_iterator.next();

@@ -39,20 +39,24 @@ use crate::data_type::{
     Int96Type,
 };
 use crate::errors::Result;
+use crate::file::filer_offset_index::FilterOffsetIndex;
 use crate::schema::types::{ColumnDescriptor, ColumnPath, SchemaDescPtr, Type};
 
 /// Create array reader from parquet schema, projection mask, and parquet file reader.
+/// 'row_groups_filter_offset_index' is optional for reducing useless IO
+/// by filtering needless page.
 pub fn build_array_reader(
     parquet_schema: SchemaDescPtr,
     arrow_schema: SchemaRef,
     mask: ProjectionMask,
     row_groups: Box<dyn RowGroupCollection>,
+    row_groups_filter_offset_index: Option<Vec<Vec<FilterOffsetIndex>>>,
 ) -> Result<Box<dyn ArrayReader>> {
     let field =
         convert_schema(parquet_schema.as_ref(), mask, Some(arrow_schema.as_ref()))?;
 
     match &field {
-        Some(field) => build_reader(field, row_groups.as_ref()),
+        Some(field) => build_reader(field, row_groups.as_ref(), row_groups_filter_offset_index),
         None => Ok(make_empty_array_reader(row_groups.num_rows())),
     }
 }
@@ -60,12 +64,13 @@ pub fn build_array_reader(
 fn build_reader(
     field: &ParquetField,
     row_groups: &dyn RowGroupCollection,
+    row_groups_filter_offset_index: Option<Vec<Vec<FilterOffsetIndex>>>,
 ) -> Result<Box<dyn ArrayReader>> {
     match field.field_type {
-        ParquetFieldType::Primitive { .. } => build_primitive_reader(field, row_groups),
+        ParquetFieldType::Primitive { .. } => build_primitive_reader(field, row_groups, row_groups_filter_offset_index),
         ParquetFieldType::Group { .. } => match &field.arrow_type {
             DataType::Map(_, _) => build_map_reader(field, row_groups),
-            DataType::Struct(_) => build_struct_reader(field, row_groups),
+            DataType::Struct(_) => build_struct_reader(field, row_groups, row_groups_filter_offset_index),
             DataType::List(_) => build_list_reader(field, false, row_groups),
             DataType::LargeList(_) => build_list_reader(field, true, row_groups),
             d => unimplemented!("reading group type {} not implemented", d),
@@ -130,6 +135,7 @@ fn build_list_reader(
 fn build_primitive_reader(
     field: &ParquetField,
     row_groups: &dyn RowGroupCollection,
+    row_groups_filter_offset_index: Option<Vec<Vec<FilterOffsetIndex>>>,
 ) -> Result<Box<dyn ArrayReader>> {
     let (col_idx, primitive_type, type_len) = match &field.field_type {
         ParquetFieldType::Primitive {
@@ -159,7 +165,7 @@ fn build_primitive_reader(
         ColumnPath::new(vec![]),
     ));
 
-    let page_iterator = row_groups.column_chunks(col_idx)?;
+    let page_iterator = row_groups.column_chunks(col_idx, row_groups_filter_offset_index)?;
     let null_mask_only = field.def_level == 1 && field.nullable;
     let arrow_type = Some(field.arrow_type.clone());
 
@@ -309,11 +315,12 @@ fn build_primitive_reader(
 fn build_struct_reader(
     field: &ParquetField,
     row_groups: &dyn RowGroupCollection,
+    row_groups_filter_offset_index: Option<Vec<Vec<FilterOffsetIndex>>>,
 ) -> Result<Box<dyn ArrayReader>> {
     let children = field.children().unwrap();
     let children_reader = children
         .iter()
-        .map(|child| build_reader(child, row_groups))
+        .map(|child| build_reader(child, row_groups, row_groups_filter_offset_index))
         .collect::<Result<Vec<_>>>()?;
 
     Ok(Box::new(StructArrayReader::new(
@@ -353,6 +360,7 @@ mod tests {
             Arc::new(arrow_schema),
             mask,
             Box::new(file_reader),
+            None,
         )
         .unwrap();
 

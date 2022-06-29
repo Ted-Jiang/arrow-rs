@@ -590,6 +590,7 @@ mod tests {
             Arc::new(arrow_schema),
             mask,
             Box::new(file_reader),
+            None,
         )
         .unwrap();
 

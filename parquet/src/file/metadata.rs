@@ -55,8 +55,8 @@ use crate::schema::types::{
 pub struct ParquetMetaData {
     file_metadata: FileMetaData,
     row_groups: Vec<RowGroupMetaData>,
-    page_indexes: Option<Vec<Index>>,
-    offset_indexes: Option<Vec<Vec<PageLocation>>>,
+    page_indexes: Option<Vec<Vec<Index>>>,
+    offset_indexes: Option<Vec<Vec<Vec<PageLocation>>>>,
 }
 
 impl ParquetMetaData {
@@ -74,8 +74,8 @@ impl ParquetMetaData {
     pub fn new_with_page_index(
         file_metadata: FileMetaData,
         row_groups: Vec<RowGroupMetaData>,
-        page_indexes: Option<Vec<Index>>,
-        offset_indexes: Option<Vec<Vec<PageLocation>>>,
+        page_indexes: Option<Vec<Vec<Index>>>,
+        offset_indexes: Option<Vec<Vec<Vec<PageLocation>>>>,
     ) -> Self {
         ParquetMetaData {
             file_metadata,
@@ -107,12 +107,12 @@ impl ParquetMetaData {
     }
 
     /// Returns page indexes in this file.
-    pub fn page_indexes(&self) -> Option<&Vec<Index>> {
+    pub fn page_indexes(&self) -> Option<&Vec<Vec<Index>>> {
         self.page_indexes.as_ref()
     }
 
     /// Returns offset indexes in this file.
-    pub fn offset_indexes(&self) -> Option<&Vec<Vec<PageLocation>>> {
+    pub fn offset_indexes(&self) -> Option<&Vec<Vec<Vec<PageLocation>>>> {
         self.offset_indexes.as_ref()
     }
 }
@@ -226,7 +226,8 @@ pub struct RowGroupMetaData {
     num_rows: i64,
     total_byte_size: i64,
     schema_descr: SchemaDescPtr,
-    // Todo add filter result -> row range
+    columns_indexes: Option<Vec<Index>>,
+    page_locations: Option<Vec<Vec<PageLocation>>>,
 }
 
 impl RowGroupMetaData {
@@ -293,6 +294,8 @@ impl RowGroupMetaData {
             num_rows,
             total_byte_size,
             schema_descr,
+            columns_indexes: None,
+            page_locations: None,
         })
     }
 
@@ -362,6 +365,8 @@ impl RowGroupMetaDataBuilder {
             num_rows: self.num_rows,
             total_byte_size: self.total_byte_size,
             schema_descr: self.schema_descr,
+            columns_indexes: None,
+            page_locations: None,
         })
     }
 }

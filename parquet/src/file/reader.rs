@@ -31,6 +31,7 @@ use crate::schema::types::{ColumnDescPtr, SchemaDescPtr, Type as SchemaType};
 use crate::basic::Type;
 
 use crate::column::reader::ColumnReaderImpl;
+use crate::file::filer_offset_index::FilterOffsetIndex;
 
 /// Length should return the total number of bytes in the input source.
 /// It's mainly used to read the metadata, which is at the end of the source.
@@ -86,6 +87,10 @@ pub trait RowGroupReader: Send + Sync {
     /// Get page reader for the `i`th column chunk.
     fn get_column_page_reader(&self, i: usize) -> Result<Box<dyn PageReader>>;
 
+    /// Get page reader for the `i`th column chunk with offset index(in one row group).
+    /// `row_group_pages_offset_index` construct from pageIndex and input rowRanges, here we skip needless page.
+    fn get_column_page_reader_with_offset_index(&self, column_index: usize, row_group_pages_offset_index: &Vec<FilterOffsetIndex>) -> Result<Box<dyn PageReader>>;
+
     /// Get value reader for the `i`th column chunk.
     fn get_column_reader(&self, i: usize) -> Result<ColumnReader> {
         let schema_descr = self.metadata().schema_descr();
@@ -139,25 +144,27 @@ pub trait RowGroupReader: Send + Sync {
 /// Implementation of page iterator for parquet file.
 pub struct FilePageIterator {
     column_index: usize,
-    row_group_indices: Box<dyn Iterator<Item = usize> + Send>,
+    row_group_indices: Box<dyn Iterator<Item=usize> + Send>,
     file_reader: Arc<dyn FileReader>,
+    row_groups_filter_offset_index: Option<Vec<Vec<FilterOffsetIndex>>>,
 }
 
 impl FilePageIterator {
     /// Creates a page iterator for all row groups in file.
-    pub fn new(column_index: usize, file_reader: Arc<dyn FileReader>) -> Result<Self> {
+    pub fn new(column_index: usize, file_reader: Arc<dyn FileReader>, row_groups_filter_offset_index: Option<Vec<Vec<FilterOffsetIndex>>>) -> Result<Self> {
         let num_row_groups = file_reader.metadata().num_row_groups();
 
         let row_group_indices = Box::new(0..num_row_groups);
 
-        Self::with_row_groups(column_index, row_group_indices, file_reader)
+        Self::with_row_groups(column_index, row_group_indices, file_reader, row_groups_filter_offset_index)
     }
 
     /// Create page iterator from parquet file reader with only some row groups.
     pub fn with_row_groups(
         column_index: usize,
-        row_group_indices: Box<dyn Iterator<Item = usize> + Send>,
+        row_group_indices: Box<dyn Iterator<Item=usize> + Send>,
         file_reader: Arc<dyn FileReader>,
+        row_groups_filter_offset_index: Option<Vec<Vec<FilterOffsetIndex>>>,
     ) -> Result<Self> {
         // Check that column_index is valid
         let num_columns = file_reader
@@ -175,6 +182,7 @@ impl FilePageIterator {
             column_index,
             row_group_indices,
             file_reader,
+            row_groups_filter_offset_index,
         })
     }
 }
@@ -183,11 +191,19 @@ impl Iterator for FilePageIterator {
     type Item = Result<Box<dyn PageReader>>;
 
     fn next(&mut self) -> Option<Result<Box<dyn PageReader>>> {
-        self.row_group_indices.next().map(|row_group_index| {
-            self.file_reader
-                .get_row_group(row_group_index)
-                .and_then(|r| r.get_column_page_reader(self.column_index))
-        })
+        return if let Some(row_groups_filter_offset_index) = &self.row_groups_filter_offset_index {
+            self.row_group_indices.next().map(|row_group_index| {
+                self.file_reader
+                    .get_row_group(row_group_index)
+                    .and_then(|r| r.get_column_page_reader_with_offset_index(self.column_index, &row_groups_filter_offset_index[row_group_index]))
+            })
+        } else {
+            self.row_group_indices.next().map(|row_group_index| {
+                self.file_reader
+                    .get_row_group(row_group_index)
+                    .and_then(|r| r.get_column_page_reader(self.column_index))
+            })
+        }
     }
 }
 

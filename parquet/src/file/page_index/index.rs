@@ -58,7 +58,7 @@ pub enum Index {
     FIXED_LEN_BYTE_ARRAY(ByteArrayIndex),
 }
 
-/// An index of a column of [`Type`] physical representation
+/// An index of a column of [`Type`] physical representation in one column chunk
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct NativeIndex<T: ParquetValueType> {
     /// The physical type

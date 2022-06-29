@@ -53,6 +53,7 @@ pub use map_array::MapArrayReader;
 pub use null_array::NullArrayReader;
 pub use primitive_array::PrimitiveArrayReader;
 pub use struct_array::StructArrayReader;
+use crate::file::filer_offset_index::FilterOffsetIndex;
 
 /// Array reader reads parquet data into arrow array.
 pub trait ArrayReader: Send {
@@ -90,7 +91,9 @@ pub trait RowGroupCollection {
     fn num_rows(&self) -> usize;
 
     /// Returns an iterator over the column chunks for particular column
-    fn column_chunks(&self, i: usize) -> Result<Box<dyn PageIterator>>;
+    /// 'row_groups_filter_offset_index' is optional for reducing useless IO
+    /// by filtering needless page.
+    fn column_chunks(&self, i: usize , row_groups_filter_offset_index: Option<Vec<Vec<FilterOffsetIndex>>>,) -> Result<Box<dyn PageIterator>>;
 }
 
 impl RowGroupCollection for Arc<dyn FileReader> {
@@ -102,8 +105,8 @@ impl RowGroupCollection for Arc<dyn FileReader> {
         self.metadata().file_metadata().num_rows() as usize
     }
 
-    fn column_chunks(&self, column_index: usize) -> Result<Box<dyn PageIterator>> {
-        let iterator = FilePageIterator::new(column_index, Arc::clone(self))?;
+    fn column_chunks(&self, i: usize, row_groups_filter_offset_index: Option<Vec<Vec<FilterOffsetIndex>>>) -> Result<Box<dyn PageIterator>> {
+        let iterator = FilePageIterator::new(i, Arc::clone(self), row_groups_filter_offset_index)?;
         Ok(Box::new(iterator))
     }
 }

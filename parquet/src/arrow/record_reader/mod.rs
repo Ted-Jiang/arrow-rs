@@ -33,6 +33,7 @@ use crate::column::{
 };
 use crate::data_type::DataType;
 use crate::errors::{ParquetError, Result};
+use crate::file::page_index::range::RowRanges;
 use crate::schema::types::ColumnDescPtr;
 
 pub(crate) mod buffer;
