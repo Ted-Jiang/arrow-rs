@@ -163,7 +163,7 @@ where
             num_buffered_values: 0,
             num_decoded_values: 0,
             values_decoder,
-            selected_row_ranges: None
+            selected_row_ranges: None,
         }
     }
 

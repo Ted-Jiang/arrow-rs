@@ -56,7 +56,11 @@ pub fn build_array_reader(
         convert_schema(parquet_schema.as_ref(), mask, Some(arrow_schema.as_ref()))?;
 
     match &field {
-        Some(field) => build_reader(field, row_groups.as_ref(), row_groups_filter_offset_index.as_ref()),
+        Some(field) => build_reader(
+            field,
+            row_groups.as_ref(),
+            row_groups_filter_offset_index.as_ref(),
+        ),
         None => Ok(make_empty_array_reader(row_groups.num_rows())),
     }
 }
@@ -67,10 +71,14 @@ fn build_reader(
     row_groups_filter_offset_index: Option<&Vec<Vec<FilterOffsetIndex>>>,
 ) -> Result<Box<dyn ArrayReader>> {
     match field.field_type {
-        ParquetFieldType::Primitive { .. } => build_primitive_reader(field, row_groups, row_groups_filter_offset_index),
+        ParquetFieldType::Primitive { .. } => {
+            build_primitive_reader(field, row_groups, row_groups_filter_offset_index)
+        }
         ParquetFieldType::Group { .. } => match &field.arrow_type {
             DataType::Map(_, _) => build_map_reader(field, row_groups),
-            DataType::Struct(_) => build_struct_reader(field, row_groups, row_groups_filter_offset_index),
+            DataType::Struct(_) => {
+                build_struct_reader(field, row_groups, row_groups_filter_offset_index)
+            }
             DataType::List(_) => build_list_reader(field, false, row_groups),
             DataType::LargeList(_) => build_list_reader(field, true, row_groups),
             d => unimplemented!("reading group type {} not implemented", d),
@@ -165,7 +173,8 @@ fn build_primitive_reader(
         ColumnPath::new(vec![]),
     ));
 
-    let page_iterator = row_groups.column_chunks(col_idx, row_groups_filter_offset_index)?;
+    let page_iterator =
+        row_groups.column_chunks(col_idx, row_groups_filter_offset_index)?;
     let null_mask_only = field.def_level == 1 && field.nullable;
     let arrow_type = Some(field.arrow_type.clone());
 
@@ -353,7 +362,7 @@ mod tests {
             file_metadata.schema_descr(),
             file_metadata.key_value_metadata(),
         )
-            .unwrap();
+        .unwrap();
 
         let array_reader = build_array_reader(
             file_reader.metadata().file_metadata().schema_descr_ptr(),
@@ -362,7 +371,7 @@ mod tests {
             Box::new(file_reader),
             None,
         )
-            .unwrap();
+        .unwrap();
 
         // Create arrow types
         let arrow_type = DataType::Struct(vec![Field::new(

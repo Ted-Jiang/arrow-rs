@@ -20,20 +20,17 @@
 
 use bytes::{Buf, Bytes};
 use std::{convert::TryFrom, fs::File, io::Read, path::Path, sync::Arc};
-use std::borrow::BorrowMut;
-use bytes::buf::Chain;
 
-use parquet_format::{PageHeader, PageLocation, PageType};
+use parquet_format::{PageHeader, PageType};
 use thrift::protocol::TCompactInputProtocol;
 
 use crate::basic::{Compression, Encoding, Type};
 use crate::column::page::{Page, PageReader};
 use crate::compression::{create_codec, Codec};
 use crate::errors::{ParquetError, Result};
+use crate::file::filer_offset_index::FilterOffsetIndex;
 use crate::file::page_index::index_reader;
 use crate::file::{footer, metadata::*, reader::*, statistics};
-use crate::file::filer_offset_index::FilterOffsetIndex;
-use crate::file::page_index::index::Index;
 use crate::record::reader::RowIter;
 use crate::record::Row;
 use crate::schema::types::Type as SchemaType;
@@ -66,7 +63,11 @@ impl ChunkReader for File {
         Ok(FileSource::new(self, start, length))
     }
 
-    fn get_multi_range_read(&self, start_list: Vec<usize>, length_list: Vec<usize>) -> Result<Self::T> {
+    fn get_multi_range_read(
+        &self,
+        _start_list: Vec<usize>,
+        _length_list: Vec<usize>,
+    ) -> Result<Self::T> {
         unimplemented!()
     }
 }
@@ -91,13 +92,17 @@ impl ChunkReader for Bytes {
         Ok(self.slice(start..start + length).reader())
     }
 
-    fn get_multi_range_read(&self, start_list: Vec<usize>, length_list: Vec<usize>) -> Result<Self::T> {
+    fn get_multi_range_read(
+        &self,
+        start_list: Vec<usize>,
+        length_list: Vec<usize>,
+    ) -> Result<Self::T> {
         if start_list.len() != length_list.len() {
             return Err(general_err!(
-                    "Actual start_list size doesn't match the length_list size ({} vs {})",
+                "Actual start_list size doesn't match the length_list size ({} vs {})",
                 start_list.len(),
                 length_list.len()
-                ));
+            ));
         } else {
             let mut combine_vec: Vec<u8> = vec![];
             for (start, length) in start_list.into_iter().zip(length_list.into_iter()) {
@@ -124,7 +129,11 @@ impl ChunkReader for SliceableCursor {
         self.slice(start, length).map_err(|e| e.into())
     }
 
-    fn get_multi_range_read(&self, start_list: Vec<usize>, length_list: Vec<usize>) -> Result<Self::T> {
+    fn get_multi_range_read(
+        &self,
+        _start_list: Vec<usize>,
+        _length_list: Vec<usize>,
+    ) -> Result<Self::T> {
         unreachable!()
     }
 }
@@ -280,10 +289,8 @@ impl<R: 'static + ChunkReader> SerializedFileReader<R> {
             let mut columns_indexes = vec![];
             let mut offset_indexes = vec![];
             for rg in &filtered_row_groups {
-                let c =
-                    index_reader::read_columns_indexes(&chunk_reader, rg.columns())?;
-                let p =
-                    index_reader::read_pages_locations(&chunk_reader, rg.columns())?;
+                let c = index_reader::read_columns_indexes(&chunk_reader, rg.columns())?;
+                let p = index_reader::read_pages_locations(&chunk_reader, rg.columns())?;
 
                 columns_indexes.push(c);
                 offset_indexes.push(p);
@@ -385,12 +392,21 @@ impl<'a, R: 'static + ChunkReader> RowGroupReader for SerializedRowGroupReader<'
         Ok(Box::new(page_reader))
     }
 
-    fn get_column_page_reader_with_offset_index(&self, column_index: usize, row_group_pages_offset_index: &Vec<FilterOffsetIndex>) -> Result<Box<dyn PageReader>> {
+    fn get_column_page_reader_with_offset_index(
+        &self,
+        column_index: usize,
+        row_group_pages_offset_index: &[FilterOffsetIndex],
+    ) -> Result<Box<dyn PageReader>> {
         let col = self.metadata.column(column_index);
-        let row_group_offset = col.dictionary_page_offset().unwrap_or(col.data_page_offset());
-        let (start_list, length_list) = row_group_pages_offset_index[column_index].calculate_offset_range(row_group_offset);
+        let row_group_offset = col
+            .dictionary_page_offset()
+            .unwrap_or(col.data_page_offset());
+        let (start_list, length_list) = row_group_pages_offset_index[column_index]
+            .calculate_offset_range(row_group_offset);
 
-        let file_chunks = self.chunk_reader.get_multi_range_read(start_list, length_list)?;
+        let file_chunks = self
+            .chunk_reader
+            .get_multi_range_read(start_list, length_list)?;
 
         let page_reader = SerializedPageReader::new(
             file_chunks,
@@ -919,7 +935,8 @@ mod tests {
         let file = get_test_file("alltypes_plain.parquet");
         let file_reader = Arc::new(SerializedFileReader::new(file).unwrap());
 
-        let mut page_iterator = FilePageIterator::new(0, file_reader.clone(), None).unwrap();
+        let mut page_iterator =
+            FilePageIterator::new(0, file_reader.clone(), None).unwrap();
 
         // read first page
         let page = page_iterator.next();
@@ -932,7 +949,8 @@ mod tests {
 
         let row_group_indices = Box::new(0..1);
         let mut page_iterator =
-            FilePageIterator::with_row_groups(0, row_group_indices, file_reader, None).unwrap();
+            FilePageIterator::with_row_groups(0, row_group_indices, file_reader, None)
+                .unwrap();
 
         // read first page
         let page = page_iterator.next();
@@ -1125,7 +1143,9 @@ mod tests {
 
         // only one row group
         assert_eq!(page_indexes.len(), 1);
-        let index = if let Index::BYTE_ARRAY(index) = page_indexes.get(0).unwrap().get(0).unwrap() {
+        let index = if let Index::BYTE_ARRAY(index) =
+            page_indexes.get(0).unwrap().get(0).unwrap()
+        {
             index
         } else {
             unreachable!()

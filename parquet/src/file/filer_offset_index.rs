@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-use parquet_format::PageLocation;
 use crate::file::page_index::range::{Range, RowRanges};
+use parquet_format::PageLocation;
 
 /// Returns the filtered offset index containing only the pages which are overlapping with rowRanges.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -31,17 +31,26 @@ pub struct FilterOffsetIndex {
 pub(crate) type OffsetRange = (Vec<usize>, Vec<usize>);
 
 impl FilterOffsetIndex {
-    pub(crate) fn try_new(offset_index: &[PageLocation], ranges: &RowRanges, total_row_count: i64) -> Self {
+    pub(crate) fn try_new(
+        offset_index: &[PageLocation],
+        ranges: &RowRanges,
+        total_row_count: i64,
+    ) -> Self {
         let mut index = vec![];
         for i in 0..offset_index.len() {
             let page_location: &PageLocation = &offset_index[i];
-            let page_range;
-            if i == offset_index.len() - 1 {
-                page_range = Range::new(page_location.first_row_index as usize, total_row_count as usize);
+            let page_range = if i == offset_index.len() - 1 {
+                Range::new(
+                    page_location.first_row_index as usize,
+                    total_row_count as usize,
+                )
             } else {
-                let next_page_location: &PageLocation = &offset_index[i+1];
-                page_range = Range::new(page_location.first_row_index as usize, (next_page_location.first_row_index - 1) as usize);
-            }
+                let next_page_location: &PageLocation = &offset_index[i + 1];
+                Range::new(
+                    page_location.first_row_index as usize,
+                    (next_page_location.first_row_index - 1) as usize,
+                )
+            };
             if ranges.is_overlapping(&page_range) {
                 index.push(i);
             }
@@ -64,23 +73,36 @@ impl FilterOffsetIndex {
 
     pub(crate) fn get_compressed_page_size(&self, page_index: usize) -> i32 {
         let index = self.index_map[page_index];
-        self.offset_index.get(index as usize).unwrap().compressed_page_size
+        self.offset_index
+            .get(index as usize)
+            .unwrap()
+            .compressed_page_size
     }
 
     pub(crate) fn get_first_row_index(&self, page_index: usize) -> i64 {
         let index = self.index_map[page_index];
-        self.offset_index.get(index as usize).unwrap().first_row_index
+        self.offset_index
+            .get(index as usize)
+            .unwrap()
+            .first_row_index
     }
 
-    pub(crate) fn get_last_row_index(&self, page_index: usize, total_row_count: i64) -> i64 {
+    pub(crate) fn get_last_row_index(
+        &self,
+        page_index: usize,
+        total_row_count: i64,
+    ) -> i64 {
         let next_index = self.index_map[page_index] + 1;
         if next_index >= self.get_page_count() {
             total_row_count
         } else {
-            self.offset_index.get(next_index as usize).unwrap().first_row_index - 1
+            self.offset_index
+                .get(next_index as usize)
+                .unwrap()
+                .first_row_index
+                - 1
         }
     }
-
 
     // Return the offset of needed both data page and dictionary page.
     // need input `row_group_offset` as input for checking if there is one dictionary page

@@ -95,6 +95,7 @@
 //!     println!("{}", row);
 //! }
 //! ```
+pub(crate) mod filer_offset_index;
 pub mod footer;
 pub mod metadata;
 pub mod page_encoding_stats;
@@ -104,7 +105,6 @@ pub mod reader;
 pub mod serialized_reader;
 pub mod statistics;
 pub mod writer;
-pub(crate) mod filer_offset_index;
 
 /// The length of the parquet footer in bytes
 pub const FOOTER_SIZE: usize = 8;

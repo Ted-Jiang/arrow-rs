@@ -44,6 +44,7 @@ mod struct_array;
 #[cfg(test)]
 mod test_util;
 
+use crate::file::filer_offset_index::FilterOffsetIndex;
 pub use builder::build_array_reader;
 pub use byte_array::make_byte_array_reader;
 pub use byte_array_dictionary::make_byte_array_dictionary_reader;
@@ -53,7 +54,6 @@ pub use map_array::MapArrayReader;
 pub use null_array::NullArrayReader;
 pub use primitive_array::PrimitiveArrayReader;
 pub use struct_array::StructArrayReader;
-use crate::file::filer_offset_index::FilterOffsetIndex;
 
 /// Array reader reads parquet data into arrow array.
 pub trait ArrayReader: Send {
@@ -93,7 +93,11 @@ pub trait RowGroupCollection {
     /// Returns an iterator over the column chunks for particular column
     /// 'row_groups_filter_offset_index' is optional for reducing useless IO
     /// by filtering needless page.
-    fn column_chunks(&self, i: usize, row_groups_filter_offset_index: Option<&Vec<Vec<FilterOffsetIndex>>>) -> Result<Box<dyn PageIterator>>;
+    fn column_chunks(
+        &self,
+        i: usize,
+        row_groups_filter_offset_index: Option<&Vec<Vec<FilterOffsetIndex>>>,
+    ) -> Result<Box<dyn PageIterator>>;
 }
 
 impl RowGroupCollection for Arc<dyn FileReader> {
@@ -105,8 +109,16 @@ impl RowGroupCollection for Arc<dyn FileReader> {
         self.metadata().file_metadata().num_rows() as usize
     }
 
-    fn column_chunks(&self, i: usize, row_groups_filter_offset_index: Option<&Vec<Vec<FilterOffsetIndex>>>) -> Result<Box<dyn PageIterator>> {
-        let iterator = FilePageIterator::new(i, Arc::clone(self), row_groups_filter_offset_index.cloned())?;
+    fn column_chunks(
+        &self,
+        i: usize,
+        row_groups_filter_offset_index: Option<&Vec<Vec<FilterOffsetIndex>>>,
+    ) -> Result<Box<dyn PageIterator>> {
+        let iterator = FilePageIterator::new(
+            i,
+            Arc::clone(self),
+            row_groups_filter_offset_index.cloned(),
+        )?;
         Ok(Box::new(iterator))
     }
 }
@@ -120,9 +132,9 @@ fn read_records<V, CV>(
     pages: &mut dyn PageIterator,
     batch_size: usize,
 ) -> Result<usize>
-    where
-        V: ValuesBuffer + Default,
-        CV: ColumnValueDecoder<Slice=V::Slice>,
+where
+    V: ValuesBuffer + Default,
+    CV: ColumnValueDecoder<Slice = V::Slice>,
 {
     let mut records_read = 0usize;
     while records_read < batch_size {

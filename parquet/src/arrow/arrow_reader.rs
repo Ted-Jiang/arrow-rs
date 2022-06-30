@@ -30,7 +30,7 @@ use crate::arrow::schema::parquet_to_arrow_schema;
 use crate::arrow::schema::parquet_to_arrow_schema_by_columns;
 use crate::arrow::ProjectionMask;
 use crate::errors::{ParquetError, Result};
-use crate::file::filer_offset_index::{FilterOffsetIndex, OffsetRange};
+use crate::file::filer_offset_index::FilterOffsetIndex;
 use crate::file::metadata::{KeyValue, ParquetMetaData};
 use crate::file::page_index::range::RowRanges;
 use crate::file::reader::{ChunkReader, FileReader, SerializedFileReader};
@@ -145,8 +145,9 @@ impl ArrowReader for ParquetFileArrowReader {
         mask: ProjectionMask,
         batch_size: usize,
     ) -> Result<ParquetRecordBatchReader> {
-        if let Some(selected_rows) = &self.options.selected_rows {
-            self.get_record_reader_by_columns_and_row_ranges(mask, &selected_rows.clone(), batch_size)
+        if self.options.selected_rows.is_some() {
+            let ranges = &self.options.selected_rows.as_ref().unwrap().clone();
+            self.get_record_reader_by_columns_and_row_ranges(mask, ranges, batch_size)
         } else {
             let array_reader = build_array_reader(
                 self.file_reader
@@ -173,24 +174,31 @@ impl ArrowReader for ParquetFileArrowReader {
         let offset_indexes = parquet_meta.offset_indexes();
 
         return if let Some(offset_indexes) = offset_indexes {
-            let row_group_row_counts = parquet_meta.row_groups().iter().map(|r| r.num_rows()).collect::<Vec<i64>>();
+            let row_group_row_counts = parquet_meta
+                .row_groups()
+                .iter()
+                .map(|r| r.num_rows())
+                .collect::<Vec<i64>>();
 
             assert_eq!(offset_indexes.len(), row_group_row_counts.len());
 
             let mut filter_offset_index = vec![];
 
-            for (rg_num, offset_indexes_in_row_group) in offset_indexes.iter().enumerate() {
+            for (rg_num, offset_indexes_in_row_group) in offset_indexes.iter().enumerate()
+            {
                 let mut filter_offset_in_row_group = vec![];
                 for offset_indexes_in_col in offset_indexes_in_row_group {
-                    filter_offset_in_row_group.push(FilterOffsetIndex::try_new(offset_indexes_in_col, row_ranges, row_group_row_counts[rg_num]));
+                    filter_offset_in_row_group.push(FilterOffsetIndex::try_new(
+                        offset_indexes_in_col,
+                        row_ranges,
+                        row_group_row_counts[rg_num],
+                    ));
                 }
                 filter_offset_index.push(filter_offset_in_row_group);
             }
 
             let array_reader = build_array_reader(
-                parquet_meta
-                    .file_metadata()
-                    .schema_descr_ptr(),
+                parquet_meta.file_metadata().schema_descr_ptr(),
                 Arc::new(self.get_schema()?),
                 mask,
                 Box::new(self.file_reader.clone()),
@@ -199,7 +207,10 @@ impl ArrowReader for ParquetFileArrowReader {
 
             ParquetRecordBatchReader::try_new(batch_size, array_reader)
         } else {
-            Err(ParquetError::General(format!("Not set page_indexes and offset_indexes before use page filter")))
+            Err(ParquetError::General(
+                "Not set page_indexes and offset_indexes before use page filter"
+                    .to_string(),
+            ))
         };
     }
 }
