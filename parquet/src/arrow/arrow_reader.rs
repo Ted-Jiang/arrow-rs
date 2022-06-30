@@ -103,7 +103,7 @@ impl ArrowReaderOptions {
         self
     }
 
-    /// Set `skip_page_offset`, to skip decoding specific pages
+    /// Set `selected_rows`, to skip decoding specific pages
     pub fn with_skip_page_offset(mut self, selected_rows: RowRanges) -> Self {
         self.selected_rows = Some(selected_rows);
         self

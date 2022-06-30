@@ -96,7 +96,7 @@ pub trait RowGroupCollection {
     fn column_chunks(
         &self,
         i: usize,
-        row_groups_filter_offset_index: Option<&Vec<Vec<FilterOffsetIndex>>>,
+        _row_groups_filter_offset_index: Option<&Vec<Vec<FilterOffsetIndex>>>,
     ) -> Result<Box<dyn PageIterator>>;
 }
 

@@ -214,9 +214,6 @@ where
         // Read exhaustively all pages until we read all batch_size values/levels
         // or there are no more values/levels to read.
         while max(values_read, levels_read) < batch_size {
-            //TODO
-            //add filter page
-            // only read page header and set buf,decoder
             if !self.has_next()? {
                 break;
             }
