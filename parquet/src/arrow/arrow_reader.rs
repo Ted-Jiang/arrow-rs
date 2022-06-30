@@ -146,7 +146,7 @@ impl ArrowReader for ParquetFileArrowReader {
         batch_size: usize,
     ) -> Result<ParquetRecordBatchReader> {
         if let Some(selected_rows) = &self.options.selected_rows {
-            self.get_record_reader_by_columns_and_row_ranges(mask, selected_rows, batch_size)
+            self.get_record_reader_by_columns_and_row_ranges(mask, &selected_rows.clone(), batch_size)
         } else {
             let array_reader = build_array_reader(
                 self.file_reader

@@ -20,6 +20,8 @@
 
 use bytes::{Buf, Bytes};
 use std::{convert::TryFrom, fs::File, io::Read, path::Path, sync::Arc};
+use std::borrow::BorrowMut;
+use bytes::buf::Chain;
 
 use parquet_format::{PageHeader, PageLocation, PageType};
 use thrift::protocol::TCompactInputProtocol;
@@ -63,6 +65,10 @@ impl ChunkReader for File {
     fn get_read(&self, start: u64, length: usize) -> Result<Self::T> {
         Ok(FileSource::new(self, start, length))
     }
+
+    fn get_multi_range_read(&self, start_list: Vec<usize>, length_list: Vec<usize>) -> Result<Self::T> {
+        unimplemented!()
+    }
 }
 
 impl Length for Bytes {
@@ -84,6 +90,23 @@ impl ChunkReader for Bytes {
         let start = start as usize;
         Ok(self.slice(start..start + length).reader())
     }
+
+    fn get_multi_range_read(&self, start_list: Vec<usize>, length_list: Vec<usize>) -> Result<Self::T> {
+        if start_list.len() != length_list.len() {
+            return Err(general_err!(
+                    "Actual start_list size doesn't match the length_list size ({} vs {})",
+                start_list.len(),
+                length_list.len()
+                ));
+        } else {
+            let mut combine_vec: Vec<u8> = vec![];
+            for (start, length) in start_list.into_iter().zip(length_list.into_iter()) {
+                combine_vec.extend(self.slice(start..start + length).to_vec());
+            }
+            let reader = Bytes::copy_from_slice(combine_vec.as_slice()).reader();
+            Ok(reader)
+        }
+    }
 }
 
 #[allow(deprecated)]
@@ -99,6 +122,10 @@ impl ChunkReader for SliceableCursor {
 
     fn get_read(&self, start: u64, length: usize) -> Result<Self::T> {
         self.slice(start, length).map_err(|e| e.into())
+    }
+
+    fn get_multi_range_read(&self, start_list: Vec<usize>, length_list: Vec<usize>) -> Result<Self::T> {
+        unreachable!()
     }
 }
 
@@ -252,7 +279,7 @@ impl<R: 'static + ChunkReader> SerializedFileReader<R> {
         if options.enable_page_index {
             let mut columns_indexes = vec![];
             let mut offset_indexes = vec![];
-            for mut rg in filtered_row_groups {
+            for rg in &filtered_row_groups {
                 let c =
                     index_reader::read_columns_indexes(&chunk_reader, rg.columns())?;
                 let p =
@@ -361,13 +388,9 @@ impl<'a, R: 'static + ChunkReader> RowGroupReader for SerializedRowGroupReader<'
     fn get_column_page_reader_with_offset_index(&self, column_index: usize, row_group_pages_offset_index: &Vec<FilterOffsetIndex>) -> Result<Box<dyn PageReader>> {
         let col = self.metadata.column(column_index);
         let row_group_offset = col.dictionary_page_offset().unwrap_or(col.data_page_offset());
-        let offsets = row_group_pages_offset_index[column_index].calculate_offset_range(row_group_offset);
+        let (start_list, length_list) = row_group_pages_offset_index[column_index].calculate_offset_range(row_group_offset);
 
-        let mut file_chunks = self.chunk_reader.get_read(&offsets[0].get_offset() as u64, &offsets[0].get_length() as usize)?;
-        for offset in offsets.iter().skip(1) {
-            let file_chunk = self.chunk_reader.get_read(offset.get_offset() as u64, offset.get_length() as usize)?;
-            file_chunks = file_chunks.chain(file_chunk);
-        }
+        let file_chunks = self.chunk_reader.get_multi_range_read(start_list, length_list)?;
 
         let page_reader = SerializedPageReader::new(
             file_chunks,
@@ -909,7 +932,7 @@ mod tests {
 
         let row_group_indices = Box::new(0..1);
         let mut page_iterator =
-            FilePageIterator::with_row_groups(0, row_group_indices, file_reader).unwrap();
+            FilePageIterator::with_row_groups(0, row_group_indices, file_reader, None).unwrap();
 
         // read first page
         let page = page_iterator.next();
@@ -1102,7 +1125,7 @@ mod tests {
 
         // only one row group
         assert_eq!(page_indexes.len(), 1);
-        let index = if let Index::BYTE_ARRAY(index) = page_indexes.get(0).unwrap() {
+        let index = if let Index::BYTE_ARRAY(index) = page_indexes.get(0).unwrap().get(0).unwrap() {
             index
         } else {
             unreachable!()
@@ -1124,7 +1147,7 @@ mod tests {
         // only one row group
         assert_eq!(offset_indexes.len(), 1);
         let offset_index = offset_indexes.get(0).unwrap();
-        let page_offset = offset_index.get(0).unwrap();
+        let page_offset = offset_index.get(0).unwrap().get(0).unwrap();
 
         assert_eq!(4, page_offset.offset);
         assert_eq!(152, page_offset.compressed_page_size);

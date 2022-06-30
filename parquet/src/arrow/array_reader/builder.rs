@@ -56,7 +56,7 @@ pub fn build_array_reader(
         convert_schema(parquet_schema.as_ref(), mask, Some(arrow_schema.as_ref()))?;
 
     match &field {
-        Some(field) => build_reader(field, row_groups.as_ref(), row_groups_filter_offset_index),
+        Some(field) => build_reader(field, row_groups.as_ref(), row_groups_filter_offset_index.as_ref()),
         None => Ok(make_empty_array_reader(row_groups.num_rows())),
     }
 }
@@ -64,7 +64,7 @@ pub fn build_array_reader(
 fn build_reader(
     field: &ParquetField,
     row_groups: &dyn RowGroupCollection,
-    row_groups_filter_offset_index: Option<Vec<Vec<FilterOffsetIndex>>>,
+    row_groups_filter_offset_index: Option<&Vec<Vec<FilterOffsetIndex>>>,
 ) -> Result<Box<dyn ArrayReader>> {
     match field.field_type {
         ParquetFieldType::Primitive { .. } => build_primitive_reader(field, row_groups, row_groups_filter_offset_index),
@@ -86,8 +86,8 @@ fn build_map_reader(
     let children = field.children().unwrap();
     assert_eq!(children.len(), 2);
 
-    let key_reader = build_reader(&children[0], row_groups)?;
-    let value_reader = build_reader(&children[1], row_groups)?;
+    let key_reader = build_reader(&children[0], row_groups, None)?;
+    let value_reader = build_reader(&children[1], row_groups, None)?;
 
     Ok(Box::new(MapArrayReader::new(
         key_reader,
@@ -108,7 +108,7 @@ fn build_list_reader(
     assert_eq!(children.len(), 1);
 
     let data_type = field.arrow_type.clone();
-    let item_reader = build_reader(&children[0], row_groups)?;
+    let item_reader = build_reader(&children[0], row_groups, None)?;
     let item_type = item_reader.get_data_type().clone();
 
     match is_large {
@@ -135,7 +135,7 @@ fn build_list_reader(
 fn build_primitive_reader(
     field: &ParquetField,
     row_groups: &dyn RowGroupCollection,
-    row_groups_filter_offset_index: Option<Vec<Vec<FilterOffsetIndex>>>,
+    row_groups_filter_offset_index: Option<&Vec<Vec<FilterOffsetIndex>>>,
 ) -> Result<Box<dyn ArrayReader>> {
     let (col_idx, primitive_type, type_len) = match &field.field_type {
         ParquetFieldType::Primitive {
@@ -315,7 +315,7 @@ fn build_primitive_reader(
 fn build_struct_reader(
     field: &ParquetField,
     row_groups: &dyn RowGroupCollection,
-    row_groups_filter_offset_index: Option<Vec<Vec<FilterOffsetIndex>>>,
+    row_groups_filter_offset_index: Option<&Vec<Vec<FilterOffsetIndex>>>,
 ) -> Result<Box<dyn ArrayReader>> {
     let children = field.children().unwrap();
     let children_reader = children
@@ -353,7 +353,7 @@ mod tests {
             file_metadata.schema_descr(),
             file_metadata.key_value_metadata(),
         )
-        .unwrap();
+            .unwrap();
 
         let array_reader = build_array_reader(
             file_reader.metadata().file_metadata().schema_descr_ptr(),
@@ -362,7 +362,7 @@ mod tests {
             Box::new(file_reader),
             None,
         )
-        .unwrap();
+            .unwrap();
 
         // Create arrow types
         let arrow_type = DataType::Struct(vec![Field::new(

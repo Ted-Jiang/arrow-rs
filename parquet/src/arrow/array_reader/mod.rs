@@ -93,7 +93,7 @@ pub trait RowGroupCollection {
     /// Returns an iterator over the column chunks for particular column
     /// 'row_groups_filter_offset_index' is optional for reducing useless IO
     /// by filtering needless page.
-    fn column_chunks(&self, i: usize , row_groups_filter_offset_index: Option<Vec<Vec<FilterOffsetIndex>>>,) -> Result<Box<dyn PageIterator>>;
+    fn column_chunks(&self, i: usize, row_groups_filter_offset_index: Option<&Vec<Vec<FilterOffsetIndex>>>) -> Result<Box<dyn PageIterator>>;
 }
 
 impl RowGroupCollection for Arc<dyn FileReader> {
@@ -105,8 +105,8 @@ impl RowGroupCollection for Arc<dyn FileReader> {
         self.metadata().file_metadata().num_rows() as usize
     }
 
-    fn column_chunks(&self, i: usize, row_groups_filter_offset_index: Option<Vec<Vec<FilterOffsetIndex>>>) -> Result<Box<dyn PageIterator>> {
-        let iterator = FilePageIterator::new(i, Arc::clone(self), row_groups_filter_offset_index)?;
+    fn column_chunks(&self, i: usize, row_groups_filter_offset_index: Option<&Vec<Vec<FilterOffsetIndex>>>) -> Result<Box<dyn PageIterator>> {
+        let iterator = FilePageIterator::new(i, Arc::clone(self), row_groups_filter_offset_index.cloned())?;
         Ok(Box::new(iterator))
     }
 }
@@ -120,9 +120,9 @@ fn read_records<V, CV>(
     pages: &mut dyn PageIterator,
     batch_size: usize,
 ) -> Result<usize>
-where
-    V: ValuesBuffer + Default,
-    CV: ColumnValueDecoder<Slice = V::Slice>,
+    where
+        V: ValuesBuffer + Default,
+        CV: ColumnValueDecoder<Slice=V::Slice>,
 {
     let mut records_read = 0usize;
     while records_read < batch_size {

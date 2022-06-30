@@ -453,7 +453,7 @@ impl RowGroupCollection for InMemoryRowGroup {
         self.row_count
     }
 
-    fn column_chunks(&self, i: usize, row_groups_filter_offset_index: Option<Vec<FilterOffsetIndex>>) -> Result<Box<dyn PageIterator>> {
+    fn column_chunks(&self, i: usize, row_groups_filter_offset_index: Option<&Vec<FilterOffsetIndex>>) -> Result<Box<dyn PageIterator>> {
         //todo support page level filter
         let page_reader = self.column_chunks[i].as_ref().unwrap().pages();
 

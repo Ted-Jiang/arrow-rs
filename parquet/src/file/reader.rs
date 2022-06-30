@@ -49,6 +49,10 @@ pub trait ChunkReader: Length + Send + Sync {
     /// get a serialy readeable slice of the current reader
     /// This should fail if the slice exceeds the current bounds
     fn get_read(&self, start: u64, length: usize) -> Result<Self::T>;
+
+    /// get a serially readable slice of the current reader
+    /// This should fail if the slice exceeds the current bounds
+    fn get_multi_range_read(&self, start_list: Vec<usize>, length_list: Vec<usize>) -> Result<Self::T>;
 }
 
 // ----------------------------------------------------------------------
@@ -142,7 +146,7 @@ pub trait RowGroupReader: Send + Sync {
 // Iterator
 
 /// Implementation of page iterator for parquet file.
-pub struct FilePageIterator {
+pub struct FilePageIterator{
     column_index: usize,
     row_group_indices: Box<dyn Iterator<Item=usize> + Send>,
     file_reader: Arc<dyn FileReader>,
@@ -203,7 +207,7 @@ impl Iterator for FilePageIterator {
                     .get_row_group(row_group_index)
                     .and_then(|r| r.get_column_page_reader(self.column_index))
             })
-        }
+        };
     }
 }
 

@@ -25,20 +25,21 @@ pub struct FilterOffsetIndex {
     offset_index: Vec<PageLocation>,
 
     // use to keep needed page index.
-    index_map: Vec<u32>,
+    index_map: Vec<usize>,
 }
 
-impl FilterOffsetIndex {
+pub(crate) type OffsetRange = (Vec<usize>, Vec<usize>);
 
+impl FilterOffsetIndex {
     pub(crate) fn try_new(offset_index: &[PageLocation], ranges: &RowRanges, total_row_count: i64) -> Self {
         let mut index = vec![];
-        for i in offset_index.len() {
-            let page_location: &PageLocation = offset_index.get(i).unwrap();
+        for i in 0..offset_index.len() {
+            let page_location: &PageLocation = &offset_index[i];
             let page_range;
             if i == offset_index.len() - 1 {
                 page_range = Range::new(page_location.first_row_index as usize, total_row_count as usize);
             } else {
-                let next_page_location: &PageLocation = offset_index.get(i + 1).unwrap();
+                let next_page_location: &PageLocation = &offset_index[i+1];
                 page_range = Range::new(page_location.first_row_index as usize, (next_page_location.first_row_index - 1) as usize);
             }
             if ranges.is_overlapping(&page_range) {
@@ -80,17 +81,20 @@ impl FilterOffsetIndex {
         }
     }
 
+
     // Return the offset of needed both data page and dictionary page.
     // need input `row_group_offset` as input for checking if there is one dictionary page
     // in one column chunk.
-    pub(crate) fn calculate_offset_range(&self, row_group_offset: i64) -> Vec<OffsetRange> {
-        let mut ranges = vec![];
+    pub(crate) fn calculate_offset_range(&self, row_group_offset: i64) -> OffsetRange {
+        let mut start_list = vec![];
+        let mut length_list = vec![];
         let page_count = self.get_page_count();
         if page_count > 0 {
             let first_page_offset = self.get_offset(0);
             // add dictionary page if required
             if row_group_offset < first_page_offset {
-                ranges.add(Range::new(row_group_offset as usize, (first_page_offset - 1) as usize));
+                start_list.push(row_group_offset as usize);
+                length_list.push((first_page_offset - 1) as usize);
             }
             let mut current_offset = self.get_offset(0);
             let mut current_length = self.get_compressed_page_size(0);
@@ -99,32 +103,18 @@ impl FilterOffsetIndex {
                 let offset = self.get_offset(i);
                 let length = self.get_compressed_page_size(i);
 
-                if current_length + current_length == offset {
+                if (current_length + current_length) as i64 == offset {
                     current_length += length;
                 } else {
-                    ranges.push(OffsetRange { offset: current_offset, length: current_length });
+                    start_list.push(current_offset as usize);
+                    length_list.push(current_length as usize);
                     current_offset = offset;
                     current_length = length
                 }
             }
-            ranges.push(OffsetRange { offset: current_offset, length: current_length });
+            start_list.push(current_offset as usize);
+            length_list.push(current_length as usize);
         }
-        ranges
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct OffsetRange {
-    offset: i64,
-    length: i32,
-}
-
-impl OffsetRange {
-    pub(crate) fn get_offset(&self) -> i64 {
-        self.offset
-    }
-
-    pub(crate) fn get_length(&self) -> i32 {
-        self.length
+        (start_list, length_list)
     }
 }
