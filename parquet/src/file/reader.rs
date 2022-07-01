@@ -31,7 +31,7 @@ use crate::schema::types::{ColumnDescPtr, SchemaDescPtr, Type as SchemaType};
 use crate::basic::Type;
 
 use crate::column::reader::ColumnReaderImpl;
-use crate::file::filer_offset_index::FilterOffsetIndex;
+use crate::file::page_index::filer_offset_index::FilterOffsetIndex;
 
 /// Length should return the total number of bytes in the input source.
 /// It's mainly used to read the metadata, which is at the end of the source.

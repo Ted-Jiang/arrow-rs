@@ -28,7 +28,7 @@ use crate::basic::{Compression, Encoding, Type};
 use crate::column::page::{Page, PageReader};
 use crate::compression::{create_codec, Codec};
 use crate::errors::{ParquetError, Result};
-use crate::file::filer_offset_index::FilterOffsetIndex;
+use crate::file::page_index::filer_offset_index::FilterOffsetIndex;
 use crate::file::page_index::index_reader;
 use crate::file::{footer, metadata::*, reader::*, statistics};
 use crate::record::reader::RowIter;

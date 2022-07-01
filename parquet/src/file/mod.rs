@@ -95,7 +95,6 @@
 //!     println!("{}", row);
 //! }
 //! ```
-pub(crate) mod filer_offset_index;
 pub mod footer;
 pub mod metadata;
 pub mod page_encoding_stats;

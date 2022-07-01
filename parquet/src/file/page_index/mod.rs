@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+pub(crate) mod filer_offset_index;
 pub mod index;
 pub mod index_reader;
 pub(crate) mod range;

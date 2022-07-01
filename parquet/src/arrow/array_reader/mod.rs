@@ -44,7 +44,7 @@ mod struct_array;
 #[cfg(test)]
 mod test_util;
 
-use crate::file::filer_offset_index::FilterOffsetIndex;
+use crate::file::page_index::filer_offset_index::FilterOffsetIndex;
 pub use builder::build_array_reader;
 pub use byte_array::make_byte_array_reader;
 pub use byte_array_dictionary::make_byte_array_dictionary_reader;

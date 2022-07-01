@@ -39,7 +39,7 @@ use crate::data_type::{
     Int96Type,
 };
 use crate::errors::Result;
-use crate::file::filer_offset_index::FilterOffsetIndex;
+use crate::file::page_index::filer_offset_index::FilterOffsetIndex;
 use crate::schema::types::{ColumnDescriptor, ColumnPath, SchemaDescPtr, Type};
 
 /// Create array reader from parquet schema, projection mask, and parquet file reader.
